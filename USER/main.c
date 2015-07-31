@@ -9,7 +9,8 @@
 //				 	V1.3				Change remote.c,Add return function																					2015/07/29	//
 //					V1.4				Change ROB_Sub_Status from Struct to Union																	2015/07/30	//
 //					V1.5				Change Navigation_loop from if..else to switch															2015/07/31	//
-//					V1.6        Add RTC function																														2015/07/31	//
+//					V1.6        Change Plan function from TIM5 to RTC																				2015/07/31	//
+//					V1.6.1			Remove TIM5,use RTC as 1s_timer																							2015/07/31	//
 //**************************************************************************************************************//
 
 #include "usr_includes.h"
@@ -26,6 +27,7 @@
 #include "power5v.h"
 #include "charger.h"
 #include "timer.h"
+#include "rtc.h"
 
 //机器人基本状态参数
 static u8	ROB_Basic_Status_flag = 0;																					//机器人基本状态标识,1->待机,2->打扫,3->自动返回充电座,4->充电,5->休眠,6->报警
@@ -143,33 +145,19 @@ u8 g_charge_start_flag = 0;
 //充电PWM相关参数
 static u8 charge_pwm_pulse_width = 0;
 
-//TIM5定时参数
-static u8 timer5_500ms_flag = 0;																							//定时器计时到500ms标识
-static u8 timer5_1s_charging_led_flag	= 0;																		//定时器计时到1s标识,用于充电时LED流水灯闪烁延时
-static u8 timer5_1s_switch_err_flag = 0;																			//定时器计时到1s标识,用于充电时电源开关未开错误提示音延时
-static u8 timer5_1s_charging_1d4_flag = 0;																		//定时器计时到1s标识,用于充电时电池电量低于1/4满电电量时的充电占空比变化延时
-//static u8 timer5_1s_motor_fan_flag = 0;																				//定时器计时到1s标识,用于风机软启动延时
-static u8 timer5_1s_Dush_Full_flag = 0;																				//定时器计时到1s标识,尘盒满错误提示音延时
-static u8 timer5_1s_battery_very_low_flag = 0;																//定时器计时到1s标识,电池电量极低错误提示音延时
-static u8 timer5_1min_flag = 0;																								//定时到1分钟标识
-//static u8 timer5_1hour_flag = 0;																							//定时到1小时标识,用于计划任务小时倒计时
-static u8 timer5_24hour_flag = 0;																							//定时到24小时标识,用于计划任务每天相同时间重复倒计时
-static u8 timer5_cnt_10ms = 0;
-static u8 timer5_cnt_100ms = 0;
-static u8 timer5_cnt_500ms = 0;
-static u8 timer5_cnt_1s = 0;
-static u8 timer5_cnt_1min = 0;
-static u8 timer5_cnt_30min = 0;
-static u8 timer5_cnt_1hour = 0;
-static u8 timer5_cnt_24hour = 0;
+//RTC定时参数
+static u8 RTC_1s_printf_flag = 0;																							//RTC定时器1s中断标识，用于串口输出延时
+static u8 RTC_1s_charging_led_flag	= 0;																			//RTC定时器1s中断标识，用于充电时LED流水灯闪烁延时
+static u8 RTC_1s_switch_err_flag = 0;																					//RTC定时器1s中断标识，用于充电时电源开关未开错误提示音延时
+static u8 RTC_1s_charging_1d4_flag = 0;																				//RTC定时器1s中断标识，用于充电时电池电量低于1/4满电电量时的充电占空比变化延时
+//static u8 RTC_1s_motor_fan_flag = 0;																				//RTC定时器1s中断标识，用于风机软启动延时
+static u8 RTC_1s_Dush_Full_flag = 0;																					//RTC定时器1s中断标识，尘盒满错误提示音延时
+static u8 RTC_1s_battery_very_low_flag = 0;																		//RTC定时器1s中断标识，电池电量极低错误提示音延时
 
 //计划任务相关参数
 static u8 plan_usr_min_value 	= 0;																						//用户设置的计划任务倒计时时间->分钟
 static u8 plan_usr_hour_value 	= 0;																					//用户设置的计划任务倒计时时间->小时
-static u8 plan_cnt_min_value = 0;																							//计划任务倒计时时间->分钟
-static u8 plan_cnt_hour_value = 0;																						//计划任务倒计时时间->小时
 static u8 plan_step_change_flag = 0;																					//计划任务设置步进值切换标识,1对应设置步进值为10,0对应设置步进值为1;
-//static u8 plan_24hour_time_up_flag = 0;																				//24小时倒计时时间到标识
 
 //系统初始化
 void Usr_System_Init(void)
@@ -177,12 +165,13 @@ void Usr_System_Init(void)
 	delay_init();	    	 																													//延时函数初始化
 	NVIC_Configuration(); 	 																											//设置NVIC中断分组2:2位抢占优先级,2位响应优先级
 	UART_init(9600);	 																														//串口初始化,波特率9600
-	TIM5_Int_Init(999,719);																												//TIM5初始化,用作10ms定时基准
+//	TIM5_Int_Init(999,719);																												//TIM5初始化,用作10ms定时基准
 	LED_Init();																																		//LED显示屏初始化
 	KEY_Init();																																		//电容按键初始化
 	REMOTE_Init();																																//红外接收端口初始化
 	VOICE_Init();																																	//语音芯片端口初始化
 	POWER5V_Init();																																//5V电源控制端口初始化
+	RTC_Init();																																		//实时时钟初始化
 	SENSOR_Init();																																//传感器端口初始化
  	MOTOR_SIDE_Init();		  																											//边刷电机端口初始化
   MOTOR_FAN_Init();          																										//吸尘风机端口初始化
@@ -202,7 +191,7 @@ void Disp_Loop(void)
 	for(i=0;i<8;i++)
 		led_code[i] = 0x00;
 
-	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){											//若设置计划任务标识置位,则显示倒计时设置时间
+	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){											//若设置计划任务标识置位,则显示计时设置时间
 		LED_DISP_Time(led_code, plan_usr_hour_value, plan_usr_min_value);
 	}
 }
@@ -227,6 +216,8 @@ void EXTI9_5_IRQHandler(void)
 		key_keysta = 0;
 	EXTI->PR  |= (1<<5)|(1<<6)|(1<<7)|(1<<8);																			//清除LINE5,6,7,8上的中断标识
 }
+
+
 
 //电容按键键值处理函数
 void Key_Loop(void)
@@ -253,15 +244,17 @@ void Key_Loop(void)
 				}
 				break;
 			case(KEY_PLAN):																														//PLAN键按下
-				LED_DISP(led_code, LED_PLAN, 1);																							//PLAN灯亮起
+				LED_DISP(led_code, LED_PLAN, 1);																					//PLAN灯亮起
 				if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){
 					if(plan_usr_hour_value||plan_usr_min_value){
-						plan_cnt_min_value 	= 0;																									//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
-						plan_cnt_hour_value = 0;																									//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
-						timer5_24hour_flag = 0;																										//当用户设置倒计时时间有值,并确认设置时,24小时计时到标识清零
-						timer5_cnt_1min = 0;																											//当用户设置倒计时时间有值,并确认设置时,1分钟倒计时计数值清零
-						timer5_cnt_1hour = 0;																											//当用户设置倒计时时间有值,并确认设置时,1小时倒计时计数值清零
-						timer5_cnt_24hour = 0;																										//当用户设置倒计时时间有值,并确认设置时,24小时倒计时计数值清零
+						RTC_EnterConfigMode();
+						RTC_SetCounter(0);																												//当用户设置倒计时时间有值,并确认设置时,清零RTC时钟计数器
+						RTC_WaitForLastTask();																										//等待最近一次对RTC寄存器的写操作完成
+						RTC_SetAlarm(PLAN_ALARM_CNT_VALUE);																				//当用户设置倒计时时间有值,并确认设置时,重新装载闹钟寄存器值,86400/3600 = 24;
+						RTC_WaitForLastTask();
+						RTC_ExitConfigMode();
+						RTC_Calendar.min 	= 0;																										//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
+						RTC_Calendar.hour = 0;																										//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
 						ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 1;					//当用户设置倒计时时间有值,并确认设置时,计划任务倒计时开始标识置位
 						VOICE_PLAY(VOICE_Play_set_success);																				//当用户设置倒计时时间有值时,提示设置成功
 					}
@@ -455,10 +448,10 @@ void Sensor_Loop(void)
 	for(i=24;i<=26;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[24..26]电池电量检测,充电时电源电量检测,电池温度检测
 
 	//printf("ROB_Sub_Status=%d\r\n",ROB_Sub_Status_Union.ROB_Sub_Status);					//打印系统状态寄存器值
-	if(timer5_500ms_flag){
-		for(i=0;i<=10;i++)		printf("[%d]=%d,",i,sensor_val[i]);											//传感器数组值打印,调试用
+	if(RTC_1s_printf_flag){
+		for(i=24;i<=26;i++)		printf("[%d]=%d,",i,sensor_val[i]);											//传感器数组值打印,调试用
 		printf("\r\n");
-		timer5_500ms_flag = 0;
+		RTC_1s_printf_flag = 0;
 	}
 
 	//将避障导航传感器读取值赋值给传感器共用体，供导航函数使用
@@ -705,29 +698,29 @@ void Charging_LED_Horse_Lamp(u8 led_horse_lamp_en)
 {
 	if(led_horse_lamp_en){																												//若充电开始标识置位,则开始显示充电电量
 		if(sensor_val[SENS_Battery] < SYS_Battery_1d4){																//电池电量小于1/4满电状态时,4个数码管LED依次闪亮数字"1"
-			if(timer5_1s_charging_led_flag){
-				LED_Horse_Lamp(5);
-				timer5_1s_charging_led_flag = 0;
+			if(RTC_1s_charging_led_flag){
+				LED_Horse_Lamp(4);
+				RTC_1s_charging_led_flag = 0;
 			}
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_2d4){													//电池电量小于2/4满电状态时,第1数码管常亮"1",其余3个数码管LED依次闪亮数字"1"
-			if(timer5_1s_charging_led_flag){
-				LED_Horse_Lamp(4);
-				timer5_1s_charging_led_flag = 0;
+			if(RTC_1s_charging_led_flag){
+				LED_Horse_Lamp(3);
+				RTC_1s_charging_led_flag = 0;
 			}
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_3d4){													//电池电量小于3/4满电状态时,第1和第2数码管常亮"1",其余2个数码管LED依次闪亮数字"1"
-			if(timer5_1s_charging_led_flag){
-				LED_Horse_Lamp(3);
-				timer5_1s_charging_led_flag = 0;
+			if(RTC_1s_charging_led_flag){
+				LED_Horse_Lamp(2);
+				RTC_1s_charging_led_flag = 0;
 			}
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_Full){												//电池电量小于满电状态时,第1、第2和第3数码管常亮"1",其余1个数码管LED依次闪亮数字"1"
-			if(timer5_1s_charging_led_flag){
-				LED_Horse_Lamp(2);
-				timer5_1s_charging_led_flag = 0;
+			if(RTC_1s_charging_led_flag){
+				LED_Horse_Lamp(1);
+				RTC_1s_charging_led_flag = 0;
 			}
 		}else{																																				//电池电量充满时,4个数码管常亮"1"
-			if(timer5_1s_charging_led_flag){
-				LED_Horse_Lamp(1);
-				timer5_1s_charging_led_flag = 0;
+			if(RTC_1s_charging_led_flag){
+				LED_Horse_Lamp(0);
+				RTC_1s_charging_led_flag = 0;
 			}else
 				;
 		}
@@ -744,9 +737,9 @@ void Charging_Loop(void)
 			MOTOR_SIDE(M_SIDE_Stop);																											//充电开始后,边刷电机停止
 			MOTOR_FAN(M_FAN_Stop, M_FAN_speed_stop);																			//充电开始后,风机停止
 			if(sensor_val[SENS_Battery] < SYS_Battery_1d4){
-				if(timer5_1s_charging_1d4_flag){
+				if(RTC_1s_charging_1d4_flag){
 					CHARGER_Start_1d4(charge_pwm_pulse_width);																		//电量小于1/4满电电量时,使用占空比渐变充电
-					timer5_1s_charging_1d4_flag = 0;
+					RTC_1s_charging_1d4_flag = 0;
 				}
 			}else if(sensor_val[SENS_Battery] < SYS_Battery_3d4){
 				CHARGER_Start_more_than_1d4();																								//电量大于1/4满电电量小于3/4满电电量时,使用固定占空比充电,占空比45.5%
@@ -795,44 +788,59 @@ void Warning_Loop(void)
 	}
 }
 
+//RTC时钟中断
+//每秒触发一次
+//extern u16 tcnt;
+void RTC_IRQHandler(void)
+{
+	if (RTC_GetITStatus(RTC_IT_SEC) != RESET){																		//秒钟中断
+		RTC_Get();																																		//更新时间
+		RTC_1s_printf_flag = 1;
+		RTC_1s_charging_led_flag = 1;
+		RTC_1s_switch_err_flag = 1;
+		RTC_1s_charging_1d4_flag = 1;
+//	RTC_1s_motor_fan_flag = 1;
+		RTC_1s_Dush_Full_flag = 1;
+		RTC_1s_battery_very_low_flag = 1;
+ 	}
+	if(RTC_GetITStatus(RTC_IT_ALR)!= RESET){																			//闹钟中断
+		RTC->CRL |= RTC_CRL_CNF;
+		RTC_SetCounter(0);																														//清零RTC时钟计数器
+		RTC_WaitForLastTask();
+		RTC->CRL &= (uint16_t)~((uint16_t)RTC_CRL_CNF);
+		RTC_Calendar.hour = 0;
+		RTC_Calendar.min = 0;
+		RTC_Calendar.sec = 0;
+		ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 1;							//若24小时计时时间到标识置位,则使能倒计时
+		RTC_ClearITPendingBit(RTC_IT_ALR);																						//清闹钟中断
+  }
+	RTC_ClearITPendingBit(RTC_IT_SEC|RTC_IT_OW);																	//清闹钟中断
+	RTC_WaitForLastTask();
+}
+
 //计划任务处理函数
 void Plan_Loop(void)
 {
-	if(timer5_24hour_flag){																												//若24小时计时时间到标识置位,则使能倒计时
-		ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 1;
-		timer5_24hour_flag = 0;
-	}
 	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag){							//若计划任务倒计时使能,则开始根据定时标识进行计数
-		if(timer5_1min_flag){
-			if(plan_cnt_min_value < 60)
-				plan_cnt_min_value++;
-			else{
-				plan_cnt_hour_value++;
-				plan_cnt_min_value = 0;
-			}
-			timer5_1min_flag = 0;
-		}
-	}
 	//判断计时时间是否与计划设置时间相同,相同则置位计时时间到标识
 	if(plan_usr_hour_value == 0){
-		if(plan_usr_min_value == 0){																									//当用户设置计划任务倒计时时间都为0时,不进行倒计时比较
+		if(plan_usr_min_value == 0){																									//当用户设置计划任务计时时间都为0时,不进行倒计时比较
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 0;
-		}else{																																				//当用户设置计划任务倒计时时间中的分钟值不为0时,进行倒计时比较
-			if(plan_cnt_min_value == plan_usr_min_value){
-				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 1;							//当倒计时分钟数与用户设置分钟数一致时,时间到标识置位
+		}else{																																				//当用户设置计划任务计时时间中的分钟值不为0时,进行倒计时比较
+			if(RTC_Calendar.min == plan_usr_min_value){
+				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 1;							//当计时分钟数与用户设置分钟数一致时,时间到标识置位
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 0;
-				plan_cnt_min_value = 0;
 				VOICE_PLAY(VOICE_Play_remind_short);
 			}
 		}
-	}else{
-		if((plan_cnt_min_value == plan_usr_min_value)&&(plan_cnt_hour_value == plan_usr_hour_value)){
-			ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 1;
-			ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 0;
-			plan_cnt_min_value = 0;
-			plan_cnt_hour_value = 0;
-			VOICE_PLAY(VOICE_Play_remind_short);
+		}else{
+			if((RTC_Calendar.min == plan_usr_min_value)&&(RTC_Calendar.hour == plan_usr_hour_value)){
+				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 1;
+				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 0;
+				VOICE_PLAY(VOICE_Play_remind_short);
+			}
 		}
+		printf("min=%d,sec=%d\r\n",RTC_Calendar.min,RTC_Calendar.sec);
 	}
 }
 
@@ -850,9 +858,9 @@ void Sub_Status_Loop(void)
 			if(sensor_val[SENS_Battery] < SYS_Battery_Very_Low){													//电池电量低于电量极低阈值后的动作
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.battery_very_low_flag = 1;
 				LED_DISP(led_code,LED_ERR_Bat_Low, 1);																				//LED屏显示电池电量低提示,"Lo"
-				if(timer5_1s_battery_very_low_flag){
+				if(RTC_1s_battery_very_low_flag){
 					VOICE_PLAY(VOICE_Play_dong);																									//电池电量极低时通过提示音报警
-					timer5_1s_battery_very_low_flag = 0;
+					RTC_1s_battery_very_low_flag = 0;
 				}
 			}else{
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.battery_very_low_flag = 0;
@@ -869,9 +877,9 @@ void Sub_Status_Loop(void)
 			LED_DISP_ERR(led_code, 1, 0);																									//LED屏显示错误代码,"E10"
 			CHARGER_Stop();
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag = 0;
-			if(timer5_1s_switch_err_flag){
+			if(RTC_1s_switch_err_flag){
 				VOICE_PLAY(VOICE_Play_dong);
-				timer5_1s_switch_err_flag = 0;
+				RTC_1s_switch_err_flag = 0;
 			}else
 				;
 		}else if(sensor_val[SENS_Battery] > SYS_Power24V_Switch_off_err_Value){				//当充电开始后,若充电中途关闭电源开关,停止充电再次报警
@@ -945,9 +953,9 @@ void Sub_Status_Loop(void)
 		MOTOR_FAN(M_FAN_Stop, M_FAN_speed_stop);
 		LED_DISP_ERR(led_code, 1,5);																											//尘盒满错误提示,"E15"
 		LED_DISP(led_code, LED_GARBAGE_WARNING, 1);																				//尘盒LED错误提示,LED_GARBAGE内层LED亮,红色
-		if(timer5_1s_Dush_Full_flag){
+		if(RTC_1s_Dush_Full_flag){
 			VOICE_PLAY(VOICE_Play_dong);
-			timer5_1s_Dush_Full_flag = 0;
+			RTC_1s_Dush_Full_flag = 0;
 		}else
 			;
 	}else{
@@ -1144,43 +1152,12 @@ void EXTI1_IRQHandler(void)
 	EXTI->PR &= ~(1<<1);
 }
 
-//定时器5中断服务程序,用于产生各种时间标识作为定时基准
-void TIM5_IRQHandler(void)																										//TIM5中断
-{
-	if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET)  													//检查TIM5更新中断发生与否
-	{
-		timer5_cnt_10ms++;
-		timer5_cnt_100ms++;
-		timer5_cnt_500ms++;
-		timer5_cnt_1s++;
-		if(timer5_cnt_500ms == 50){
-			timer5_500ms_flag = 1;
-			timer5_cnt_500ms = 0;
-		}
-		if(timer5_cnt_1s == 60){
-			timer5_cnt_1min++;
-			timer5_1s_charging_led_flag = 1;
-			timer5_1s_switch_err_flag = 1;
-			timer5_1s_charging_1d4_flag = 1;
-//			timer5_1s_motor_fan_flag = 1;
-			timer5_1s_Dush_Full_flag = 1;
-			timer5_cnt_1s = 0;
-		}
-		if(timer5_cnt_1min == 60){
-			timer5_cnt_30min++;
-			timer5_cnt_1hour++;
-			timer5_1min_flag = 1;
-			timer5_cnt_1min = 0;
-		}
-		if(timer5_cnt_1hour == 60){
-			timer5_cnt_24hour++;
-//			timer5_1hour_flag = 1;
-			timer5_cnt_1hour = 0;
-		}
-		if(timer5_cnt_24hour == 24){
-			timer5_24hour_flag = 1;
-			timer5_cnt_24hour = 0;
-		}
-		TIM_ClearITPendingBit(TIM5, TIM_IT_Update);  																	//清除TIM5更新中断标志
-	}
-}
+////定时器5中断服务程序,用于产生各种时间标识作为定时基准
+//void TIM5_IRQHandler(void)																										//TIM5中断
+//{
+//	if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET)  													//检查TIM5更新中断发生与否
+//	{
+
+//		TIM_ClearITPendingBit(TIM5, TIM_IT_Update);  																	//清除TIM5更新中断标志
+//	}
+//}

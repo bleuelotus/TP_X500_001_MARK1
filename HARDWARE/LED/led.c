@@ -157,38 +157,35 @@ void LED_DISP_ERR(u8 *code, u8 num2, u8	num1)															//”√”⁄LED∆¡œ‘ æ¥ÌŒÛ¥
 void LED_Horse_Lamp_Disp(u8 *code, u8 led_i)
 {
 	switch(led_i){
-		case(5):
-			LED_DISP(code, LED_NUM1, CODE_SPACE);
-			LED_DISP(code, LED_NUM2, CODE_SPACE);
-			LED_DISP(code, LED_NUM3, CODE_SPACE);
-			LED_DISP(code, LED_NUM4, CODE_SPACE);
-			break;
 		case(4):
-			LED_DISP(code, LED_NUM1, 1);
+			LED_DISP(code, LED_NUM1, CODE_SPACE);
 			LED_DISP(code, LED_NUM2, CODE_SPACE);
 			LED_DISP(code, LED_NUM3, CODE_SPACE);
 			LED_DISP(code, LED_NUM4, CODE_SPACE);
 			break;
 		case(3):
 			LED_DISP(code, LED_NUM1, 1);
-			LED_DISP(code, LED_NUM2, 1);
+			LED_DISP(code, LED_NUM2, CODE_SPACE);
 			LED_DISP(code, LED_NUM3, CODE_SPACE);
 			LED_DISP(code, LED_NUM4, CODE_SPACE);
 			break;
 		case(2):
 			LED_DISP(code, LED_NUM1, 1);
 			LED_DISP(code, LED_NUM2, 1);
-			LED_DISP(code, LED_NUM3, 1);
+			LED_DISP(code, LED_NUM3, CODE_SPACE);
 			LED_DISP(code, LED_NUM4, CODE_SPACE);
 			break;
 		case(1):
 			LED_DISP(code, LED_NUM1, 1);
 			LED_DISP(code, LED_NUM2, 1);
 			LED_DISP(code, LED_NUM3, 1);
-			LED_DISP(code, LED_NUM4, 1);
+			LED_DISP(code, LED_NUM4, CODE_SPACE);
 			break;
 		default:
-			
+			LED_DISP(code, LED_NUM1, 1);
+			LED_DISP(code, LED_NUM2, 1);
+			LED_DISP(code, LED_NUM3, 1);
+			LED_DISP(code, LED_NUM4, 1);
 			break;
 	}
 }

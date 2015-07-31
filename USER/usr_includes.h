@@ -128,6 +128,9 @@
 #define KEY_PLAN													3
 #define KEY_HOME													4
 
+//计划任务相关参数
+#define PLAN_ALARM_CNT_VALUE							86400
+
 //充电状态相关常量
 #define SYS_Battery_Temp_High							2000																//电池温度高报警阈值
 #define SYS_Battery_Low										1750																//电池电量低报警阈值,低于此值后机器人切换至自动充电状态

@@ -244,11 +244,11 @@ u16 SENSOR_Scan(u8 sensor_var)
 			sensor_value = 0x0001&(SENS_M_MOVE_R_OVLOAD_Value);
 		break;
 		case(SENS_Battery):																														//电池电量检测
-			if(g_charge_start_flag)
-				TIM_CtrlPWMOutputs(TIM1, DISABLE);																						//若充电开始，测量时先关闭PWM
+//			if(g_charge_start_flag)
+//				TIM_CtrlPWMOutputs(TIM1, DISABLE);																						//若充电开始，测量时先关闭PWM
 			sensor_value = Get_Adc(SENS_Battery_ADC_CH);
-			if(g_charge_start_flag)
-				TIM_CtrlPWMOutputs(TIM1, ENABLE);																							//测量后打开PWM
+//			if(g_charge_start_flag)
+//				TIM_CtrlPWMOutputs(TIM1, ENABLE);																							//测量后打开PWM
 		break;
 		case(SENS_24V):																																//充电时电源电量检测
 			sensor_value = Get_Adc(SENS_Charging_Battery_ADC_CH);
