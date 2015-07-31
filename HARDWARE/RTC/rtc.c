@@ -43,7 +43,7 @@ u8 RTC_Init(void)
 //	RCC_LSEConfig(RCC_LSE_ON);																											//设置外部低速晶振(LSE),使用外部低速晶振
 		RCC_LSEConfig(RCC_LSE_Bypass);																								//设置外部低速晶振(LSE),使用外部高速晶振,旁路外部低速晶振
 //		while (RCC_GetFlagStatus(RCC_FLAG_LSERDY) == RESET)														//检查指定的RCC标志位设置与否,等待低速晶振就绪
-		while (RCC_GetFlagStatus(RCC_FLAG_HSERDY) == RESET){														//检查指定的RCC标志位设置与否,等待高速晶振就绪
+		while (RCC_GetFlagStatus(RCC_FLAG_HSERDY) == RESET){													//检查指定的RCC标志位设置与否,等待高速晶振就绪
 			temp++;
 			delay_ms(10);
 		}

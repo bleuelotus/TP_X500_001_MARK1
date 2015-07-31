@@ -8,6 +8,8 @@
 //				 	V1.2				Add Plan_Loop function																											2015/07/28	//
 //				 	V1.3				Change remote.c,Add return function																					2015/07/29	//
 //					V1.4				Change ROB_Sub_Status from Struct to Union																	2015/07/30	//
+//					V1.5				Change Navigation_loop from if..else to switch															2015/07/31	//
+//					V1.6        Add RTC function																														2015/07/31	//
 //**************************************************************************************************************//
 
 #include "usr_includes.h"
