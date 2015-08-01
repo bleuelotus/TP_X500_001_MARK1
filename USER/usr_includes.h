@@ -247,9 +247,11 @@
 #define SENS_Battery_temp_ADC_CH					10
 #define SENS_Battery_temp_Value						PCin(0)															//PC0		3		电池温度检测
 
+//全局变量声明
 extern u8 g_charge_led_horse_lamp_cnt;
 extern u8 g_charge_start_flag;
 extern const u16 m_move_length_r;
 extern const u16 m_move_length_l;
 extern const u16 m_move_encoder_num;
 extern u8 led_code[];
+extern u8	g_RTC_1s_charging_led_flag;

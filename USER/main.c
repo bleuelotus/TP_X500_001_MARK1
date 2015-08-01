@@ -5,13 +5,15 @@
 //Data:2015.07.20																																																//
 //Version: 	V1.0				Create      																																2015/07/20	//
 //         	V1.1				Add Status_Change_Loop function																							2015/07/24	//
-//				 	V1.2				Add Plan_Loop function																											2015/07/28	//
+//				 	V1.2				Add Plan function																														2015/07/28	//
 //				 	V1.3				Change remote.c,Add return function																					2015/07/29	//
 //					V1.4				Change ROB_Sub_Status from Struct to Union																	2015/07/30	//
 //					V1.5				Change Navigation_loop from if..else to switch															2015/07/31	//
 //					V1.6        Change Plan function from TIM5 to RTC																				2015/07/31	//
 //					V1.6.1			Remove TIM5,use RTC as 1s_timer																							2015/07/31	//
 //**************************************************************************************************************//
+
+#define __DEBUG_CODE													//调试代码条件编译用
 
 #include "usr_includes.h"
 
@@ -28,6 +30,9 @@
 #include "charger.h"
 #include "timer.h"
 #include "rtc.h"
+
+void Charging_Loop(void);
+
 
 //机器人基本状态参数
 static u8	ROB_Basic_Status_flag = 0;																					//机器人基本状态标识,1->待机,2->打扫,3->自动返回充电座,4->充电,5->休眠,6->报警
@@ -110,7 +115,7 @@ static u8 key_keysta = 0;																											//存放当前键值
 static u8 key_exti_enter_flag = 0;																						//进入按键中断标识,退出中断后在按键处理函数中清零
 
 //行走电机参数
-static u8 m_move_speed 	= 25;																									//行走电机速度,用于设置TIM8_CH2&TIM8_CH3 COMPARE值以调整PWM占空比,20%
+static u8 m_move_speed 	= 25;																									//行走电机速度,用于设置TIM8_CH2&TIM8_CH3 COMPARE值以调整PWM占空比,25%
 //static u8 sens_ir_led_brightness = 42;																				//避障发射LED强度值,占空比42%
 static u8 m_fan_speed		= 30;																									//风机速度,用于设置TIM8_CH1 COMPARE值以调整PWM占空比,30%
 
@@ -147,7 +152,7 @@ static u8 charge_pwm_pulse_width = 0;
 
 //RTC定时参数
 static u8 RTC_1s_printf_flag = 0;																							//RTC定时器1s中断标识，用于串口输出延时
-static u8 RTC_1s_charging_led_flag	= 0;																			//RTC定时器1s中断标识，用于充电时LED流水灯闪烁延时
+u8	g_RTC_1s_charging_led_flag = 0;																						//RTC定时器1s中断标识，用于充电时LED流水灯闪烁延时,全局变量
 static u8 RTC_1s_switch_err_flag = 0;																					//RTC定时器1s中断标识，用于充电时电源开关未开错误提示音延时
 static u8 RTC_1s_charging_1d4_flag = 0;																				//RTC定时器1s中断标识，用于充电时电池电量低于1/4满电电量时的充电占空比变化延时
 //static u8 RTC_1s_motor_fan_flag = 0;																				//RTC定时器1s中断标识，用于风机软启动延时
@@ -178,6 +183,14 @@ void Usr_System_Init(void)
 	MOTOR_MOVE_Init();																														//行走电机端口初始化
 	TIM_CtrlPWMOutputs(TIM8, ENABLE);																							//使能TIM8_PWM发生器,使能行走电机,使能风机,使能避障发射
 	CHARGER_Init();																																//充电控制端口初始化
+	
+#ifdef __DEBUG_CODE
+	ROB_Basic_Status_flag = ROB_Basic_Charging_flag;
+	ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag = 1;
+	while(1){
+		Charging_Loop();
+	}
+#endif
 
 //	VOICE_PLAY(VOICE_Play_remind_long);																						//初始化完成提示音
 	printf("System_Init finished!\r\n");																					//初始化成功
@@ -217,7 +230,94 @@ void EXTI9_5_IRQHandler(void)
 	EXTI->PR  |= (1<<5)|(1<<6)|(1<<7)|(1<<8);																			//清除LINE5,6,7,8上的中断标识
 }
 
+//SPOT键按下处理函数
+void Key_Spot_Pressed(void)
+{
+	LED_DISP(led_code, LED_SPOT, 1);																							//SPOT灯亮起
+	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag){								//当进入充电状态时,SPOT键无效
 
+	}else if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){								//当进入计划任务设置状态时,SPOT按键用于增加计划任务时间,步进1min
+		plan_step_change_flag = 0;																										//步进值设置为1
+		if(plan_usr_min_value<60){
+			plan_usr_min_value += 1;
+		}else{
+			plan_usr_hour_value += 1;
+			plan_usr_min_value = 0;
+		}
+	}else{
+		MOTOR_MOVE_STOP();
+		MOTOR_SIDE(M_SIDE_Stop);
+		MOTOR_FAN(M_FAN_Stop,M_FAN_speed_stop);
+		ROB_Basic_Status_flag = ROB_Basic_Waiting_flag;
+	}
+	ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag = 1;		//**&**//
+}
+
+//PLAN键按下处理函数
+void Key_PLAN_Pressed(void)
+{
+	LED_DISP(led_code, LED_PLAN, 1);																					//PLAN灯亮起
+	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){
+		if(plan_usr_hour_value||plan_usr_min_value){
+			RTC_EnterConfigMode();
+			RTC_SetCounter(0);																												//当用户设置倒计时时间有值,并确认设置时,清零RTC时钟计数器
+			RTC_WaitForLastTask();																										//等待最近一次对RTC寄存器的写操作完成
+			RTC_SetAlarm(PLAN_ALARM_CNT_VALUE);																				//当用户设置倒计时时间有值,并确认设置时,重新装载闹钟寄存器值,86400/3600 = 24;
+			RTC_WaitForLastTask();
+			RTC_ExitConfigMode();
+			RTC_Calendar.min 	= 0;																										//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
+			RTC_Calendar.hour = 0;																										//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
+			ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 1;					//当用户设置倒计时时间有值,并确认设置时,计划任务倒计时开始标识置位
+//			VOICE_PLAY(VOICE_Play_set_success);																				//当用户设置倒计时时间有值时,提示设置成功
+		}
+		ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag = 0;									//设置计划任务使能标识清零
+	}else{
+		ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag = 1;									//设置计划任务使能标识置位
+	}
+	ROB_Basic_Status_flag = ROB_Basic_Waiting_flag;														//切换到待机状态
+}
+
+//CLEAN键按下处理函数
+void Key_CLEAN_Pressed(void)
+{
+	LED_DISP(led_code, LED_CLEAN,	1);																					//CLEAN灯亮起
+	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){									//当进入计划任务设置状态时,CLEAN键用于减少计划任务时间,步进1min
+		if(plan_usr_min_value){
+			if(plan_step_change_flag)
+				plan_usr_min_value -= 10;
+			else
+				plan_usr_min_value -= 1;
+		}else{
+			if(plan_usr_hour_value){
+				plan_usr_min_value = 60;
+				plan_usr_hour_value -=1;
+			}else{
+				plan_usr_min_value = 0;
+				plan_usr_hour_value = 0;
+			}
+		}
+	}else{
+		ROB_Basic_Status_flag = ROB_Basic_Cleaning_flag;													//切换到打扫状态
+	}
+}
+
+//HOME键按下处理函数
+void Key_HOME_Pressed(void)
+{
+	LED_DISP(led_code, LED_HOME, 1);																					//HOME灯亮起
+	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){
+		plan_step_change_flag = 1;																								//步进值设置为10
+		if(plan_usr_min_value<60){
+			plan_usr_min_value += 10;
+		}else{
+			plan_usr_hour_value += 1;
+			plan_usr_min_value = 0;
+		}
+	}else{
+
+	}
+	//ROB_Basic_Status_flag = ROB_Basic_Returning_flag;														//切换到自动充电状态
+}
 
 //电容按键键值处理函数
 void Key_Loop(void)
@@ -225,80 +325,16 @@ void Key_Loop(void)
 	if(key_exti_enter_flag){
 		switch(key_keysta){
 			case(KEY_SPOT):																														//SPOT键按下
-				LED_DISP(led_code, LED_SPOT, 1);																							//SPOT灯亮起
-				if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag){																			//当进入充电状态时,SPOT键无效
-
-				}else if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){																		//当进入计划任务设置状态时,SPOT按键用于增加计划任务时间,步进1min
-					plan_step_change_flag = 0;																								//步进值设置为1
-					if(plan_usr_min_value<60){
-						plan_usr_min_value += 1;
-					}else{
-						plan_usr_hour_value += 1;
-						plan_usr_min_value = 0;
-					}
-				}else{
-					MOTOR_MOVE_STOP();
-					MOTOR_SIDE(M_SIDE_Stop);
-					MOTOR_FAN(M_FAN_Stop,M_FAN_speed_stop);
-					ROB_Basic_Status_flag = ROB_Basic_Waiting_flag;
-				}
+				Key_Spot_Pressed();
 				break;
 			case(KEY_PLAN):																														//PLAN键按下
-				LED_DISP(led_code, LED_PLAN, 1);																					//PLAN灯亮起
-				if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){
-					if(plan_usr_hour_value||plan_usr_min_value){
-						RTC_EnterConfigMode();
-						RTC_SetCounter(0);																												//当用户设置倒计时时间有值,并确认设置时,清零RTC时钟计数器
-						RTC_WaitForLastTask();																										//等待最近一次对RTC寄存器的写操作完成
-						RTC_SetAlarm(PLAN_ALARM_CNT_VALUE);																				//当用户设置倒计时时间有值,并确认设置时,重新装载闹钟寄存器值,86400/3600 = 24;
-						RTC_WaitForLastTask();
-						RTC_ExitConfigMode();
-						RTC_Calendar.min 	= 0;																										//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
-						RTC_Calendar.hour = 0;																										//当用户设置倒计时时间有值,并确认设置时,倒计时分钟数清零
-						ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 1;					//当用户设置倒计时时间有值,并确认设置时,计划任务倒计时开始标识置位
-						VOICE_PLAY(VOICE_Play_set_success);																				//当用户设置倒计时时间有值时,提示设置成功
-					}
-					ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag = 0;									//设置计划任务使能标识清零
-				}else{
-					ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag = 1;									//设置计划任务使能标识置位
-				}
-				ROB_Basic_Status_flag = ROB_Basic_Waiting_flag;														//切换到待机状态
+				Key_PLAN_Pressed();
 				break;
 			case(KEY_CLEAN):																													//CLEAN键按下
-				LED_DISP(led_code, LED_CLEAN,	1);																					//CLEAN灯亮起
-				if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){									//当进入计划任务设置状态时,CLEAN键用于减少计划任务时间,步进1min
-					if(plan_usr_min_value){
-						if(plan_step_change_flag)
-							plan_usr_min_value -= 10;
-						else
-							plan_usr_min_value -= 1;
-					}else{
-						if(plan_usr_hour_value){
-							plan_usr_min_value = 60;
-							plan_usr_hour_value -=1;
-						}else{
-							plan_usr_min_value = 0;
-							plan_usr_hour_value = 0;
-						}
-					}
-				}else{
-					ROB_Basic_Status_flag = ROB_Basic_Cleaning_flag;													//切换到打扫状态
-				}
+				Key_CLEAN_Pressed();
 				break;
 			case(KEY_HOME):																														//HOME键按下
-				LED_DISP(led_code, LED_HOME, 1);																					//HOME灯亮起
-				if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_en_flag){
-					plan_step_change_flag = 1;																								//步进值设置为10
-					if(plan_usr_min_value<60){
-						plan_usr_min_value += 10;
-					}else{
-						plan_usr_hour_value += 1;
-						plan_usr_min_value = 0;
-					}
-				}else{
-
-				}
-				//ROB_Basic_Status_flag = ROB_Basic_Returning_flag;														//切换到自动充电状态
+				Key_HOME_Pressed();
 				break;
 			default:
 
@@ -436,69 +472,41 @@ void Sensor_Loop(void)
 	u8 i;
 
 	for(i=0;i<=6;i++)			sensor_val[i] = SENSOR_Scan(i);													//sensor[0..6]前避障传感器和前避障碰撞传感器数据读取
-
 	for(i=7;i<=10;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[7..10]探底传感器数据读取
-
 	for(i=11;i<=13;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[11..13]故障状态传感器数据读取(双轮抬起,垃圾盒未放检测,灰尘过多检测)
-
 	//for(i=14;i<=18;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[14..18]充电座自充电相关传感器数据读取,不能直接读IO电平,需要在remote.c中处理
-
 	for(i=19;i<=23;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[19..23]过载传感器数据读取
-
 	for(i=24;i<=26;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[24..26]电池电量检测,充电时电源电量检测,电池温度检测
-
 	//printf("ROB_Sub_Status=%d\r\n",ROB_Sub_Status_Union.ROB_Sub_Status);					//打印系统状态寄存器值
-	if(RTC_1s_printf_flag){
-		for(i=24;i<=26;i++)		printf("[%d]=%d,",i,sensor_val[i]);											//传感器数组值打印,调试用
-		printf("\r\n");
-		RTC_1s_printf_flag = 0;
-	}
+//	if(RTC_1s_printf_flag){
+//		for(i=0;i<=10;i++)		printf("[%d]=%d,",i,sensor_val[i]);											//传感器数组值打印,调试用
+//		printf("\r\n");
+//		RTC_1s_printf_flag = 0;
+//	}
 
 	//将避障导航传感器读取值赋值给传感器共用体，供导航函数使用
-	if(SENS_F_L_nEN)
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_l_value = 1;
-	else
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_l_value = 0;
-	if(SENS_F_LM_nEN)
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_lm_value = 1;
-	else
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_lm_value = 0;
-	if(SENS_F_M_nEN)
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_m_value = 1;
-	else
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_m_value = 0;
-	if(SENS_F_RM_nEN)
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_rm_value = 1;
-	else
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_rm_value = 0;
-	if(SENS_F_R_nEN)
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_r_value = 1;
-	else
-		Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_r_value = 0;
-	if(SENS_CRUSH_L_nEN)
-		Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_l_value = 1;
-	else
-		Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_l_value = 0;
-	if(SENS_CRUSH_R_nEN)
-		Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_r_value = 1;
-	else
-		Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_r_value = 0;
-	if(SENS_B_L_nEN)
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_l_value = 1;
-	else
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_l_value = 0;
-	if(SENS_B_LM_nEN)
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_lm_value = 1;
-	else
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_lm_value = 0;
-	if(SENS_B_RM_nEN)
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_rm_value = 1;
-	else
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_rm_value = 0;
-	if(SENS_B_R_nEN)
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_r_value = 1;
-	else
-		Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_r_value = 0;
+	if(SENS_F_L_nEN)			Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_l_value = 1;
+	else									Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_l_value = 0;
+	if(SENS_F_LM_nEN)			Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_lm_value = 1;
+	else									Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_lm_value = 0;
+	if(SENS_F_M_nEN)			Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_m_value = 1;
+	else									Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_m_value = 0;
+	if(SENS_F_RM_nEN)			Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_rm_value = 1;
+	else									Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_rm_value = 0;
+	if(SENS_F_R_nEN)			Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_r_value = 1;
+	else									Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_r_value = 0;
+	if(SENS_CRUSH_L_nEN)	Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_l_value = 1;
+	else									Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_l_value = 0;
+	if(SENS_CRUSH_R_nEN)	Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_r_value = 1;
+	else									Sens_Avoid_Crush_Value_Union.Sens_Avoid_Crush_Value_bit.sens_avoid_crash_r_value = 0;
+	if(SENS_B_L_nEN)			Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_l_value = 1;
+	else									Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_l_value = 0;
+	if(SENS_B_LM_nEN)			Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_lm_value = 1;
+	else									Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_lm_value = 0;
+	if(SENS_B_RM_nEN)			Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_rm_value = 1;
+	else									Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_rm_value = 0;
+	if(SENS_B_R_nEN)			Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_r_value = 1;
+	else									Sens_Avoid_Bottom_Value_Union.Sens_Avoid_Bottom_Value_bit.sens_avoid_bottom_r_value = 0;
 }
 
 //避障及自动返回导航函数
@@ -698,31 +706,15 @@ void Charging_LED_Horse_Lamp(u8 led_horse_lamp_en)
 {
 	if(led_horse_lamp_en){																												//若充电开始标识置位,则开始显示充电电量
 		if(sensor_val[SENS_Battery] < SYS_Battery_1d4){																//电池电量小于1/4满电状态时,4个数码管LED依次闪亮数字"1"
-			if(RTC_1s_charging_led_flag){
-				LED_Horse_Lamp(4);
-				RTC_1s_charging_led_flag = 0;
-			}
+			LED_Horse_Lamp(4);
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_2d4){													//电池电量小于2/4满电状态时,第1数码管常亮"1",其余3个数码管LED依次闪亮数字"1"
-			if(RTC_1s_charging_led_flag){
-				LED_Horse_Lamp(3);
-				RTC_1s_charging_led_flag = 0;
-			}
+			LED_Horse_Lamp(3);
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_3d4){													//电池电量小于3/4满电状态时,第1和第2数码管常亮"1",其余2个数码管LED依次闪亮数字"1"
-			if(RTC_1s_charging_led_flag){
-				LED_Horse_Lamp(2);
-				RTC_1s_charging_led_flag = 0;
-			}
+			LED_Horse_Lamp(2);
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_Full){												//电池电量小于满电状态时,第1、第2和第3数码管常亮"1",其余1个数码管LED依次闪亮数字"1"
-			if(RTC_1s_charging_led_flag){
-				LED_Horse_Lamp(1);
-				RTC_1s_charging_led_flag = 0;
-			}
+			LED_Horse_Lamp(1);
 		}else{																																				//电池电量充满时,4个数码管常亮"1"
-			if(RTC_1s_charging_led_flag){
-				LED_Horse_Lamp(0);
-				RTC_1s_charging_led_flag = 0;
-			}else
-				;
+			LED_Horse_Lamp(0);
 		}
 	}
 }
@@ -733,6 +725,9 @@ void Charging_Loop(void)
 	Charging_LED_Horse_Lamp(1);																										//当充电开始标识置位后,开始进行流水灯显示
 	if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag){
 		if(sensor_val[SENS_Battery] < SYS_Battery_Full){															//电量未充满
+#ifdef __DEBUG_CODE
+//			LED_DISP_ERR(led_code, 7,7);	
+#endif
 			MOTOR_MOVE_STOP();																														//充电开始后,行走电机停止
 			MOTOR_SIDE(M_SIDE_Stop);																											//充电开始后,边刷电机停止
 			MOTOR_FAN(M_FAN_Stop, M_FAN_speed_stop);																			//充电开始后,风机停止
@@ -750,13 +745,16 @@ void Charging_Loop(void)
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_finished_flag = 1;							//充电完成标识置位
 			CHARGER_Stop();																																//充电电压大于电量满阈值后,停止充电
 			if(voice_play_times_charging_finished_ch){
-				VOICE_PLAY(VOICE_Play_charging_up_ch);																				//电量充满后语音提示一次
+//				VOICE_PLAY(VOICE_Play_charging_up_ch);																				//电量充满后语音提示一次
 				voice_play_times_charging_finished_ch--;
 			}else
 				voice_play_times_charging_finished_ch = 0;
 		}
 	}else
 		CHARGER_Stop();
+#ifdef	__DEBUG_CODE
+//		LED_DISP_ERR(led_code, 6,6);
+#endif
 }
 
 //报警状态处理函数
@@ -796,7 +794,7 @@ void RTC_IRQHandler(void)
 	if (RTC_GetITStatus(RTC_IT_SEC) != RESET){																		//秒钟中断
 		RTC_Get();																																		//更新时间
 		RTC_1s_printf_flag = 1;
-		RTC_1s_charging_led_flag = 1;
+		g_RTC_1s_charging_led_flag = 1;
 		RTC_1s_switch_err_flag = 1;
 		RTC_1s_charging_1d4_flag = 1;
 //	RTC_1s_motor_fan_flag = 1;
@@ -830,14 +828,14 @@ void Plan_Loop(void)
 			if(RTC_Calendar.min == plan_usr_min_value){
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 1;							//当计时分钟数与用户设置分钟数一致时,时间到标识置位
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 0;
-				VOICE_PLAY(VOICE_Play_remind_short);
+//				VOICE_PLAY(VOICE_Play_remind_short);
 			}
 		}
-		}else{
+	}else{
 			if((RTC_Calendar.min == plan_usr_min_value)&&(RTC_Calendar.hour == plan_usr_hour_value)){
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_time_up_flag = 1;
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.plan_cnt_start_flag = 0;
-				VOICE_PLAY(VOICE_Play_remind_short);
+//				VOICE_PLAY(VOICE_Play_remind_short);
 			}
 		}
 		printf("min=%d,sec=%d\r\n",RTC_Calendar.min,RTC_Calendar.sec);
@@ -859,7 +857,7 @@ void Sub_Status_Loop(void)
 				ROB_Sub_Status_Union.ROB_Sub_Status_bit.battery_very_low_flag = 1;
 				LED_DISP(led_code,LED_ERR_Bat_Low, 1);																				//LED屏显示电池电量低提示,"Lo"
 				if(RTC_1s_battery_very_low_flag){
-					VOICE_PLAY(VOICE_Play_dong);																									//电池电量极低时通过提示音报警
+//					VOICE_PLAY(VOICE_Play_dong);																									//电池电量极低时通过提示音报警
 					RTC_1s_battery_very_low_flag = 0;
 				}
 			}else{
@@ -869,7 +867,7 @@ void Sub_Status_Loop(void)
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.battery_Low_flag = 0;
 		}
 	}
-
+	
 	//充电监测,若24V接入但未开启电源开关,错误代码"E10"
 	if(sensor_val[SENS_24V] > SYS_Power24V_Connected_Value){
 		ROB_Sub_Status_Union.ROB_Sub_Status_bit.power_connected_flag = 1;
@@ -878,7 +876,7 @@ void Sub_Status_Loop(void)
 			CHARGER_Stop();
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag = 0;
 			if(RTC_1s_switch_err_flag){
-				VOICE_PLAY(VOICE_Play_dong);
+//				VOICE_PLAY(VOICE_Play_dong);
 				RTC_1s_switch_err_flag = 0;
 			}else
 				;
@@ -889,7 +887,7 @@ void Sub_Status_Loop(void)
 		}else{
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag = 1;								//开始充电标识置位
 			if(voice_play_times_charging_start_ch){																				//开始充电语音提示,播放(VOICE_PALY_Times_charging_start_ch)次
-				VOICE_PLAY(VOICE_Play_charging_start_ch);
+//				VOICE_PLAY(VOICE_Play_charging_start_ch);
 				voice_play_times_charging_start_ch --;
 			}else
 				voice_play_times_charging_start_ch = 0;
@@ -928,7 +926,7 @@ void Sub_Status_Loop(void)
 		MOTOR_MOVE_STOP();
 		MOTOR_SIDE(M_SIDE_Stop);
 		MOTOR_FAN(M_FAN_Stop, M_FAN_speed_stop);
-		VOICE_PLAY(VOICE_Play_ding);																											//电池温度高错误发生时,不断进行声音提示
+//		VOICE_PLAY(VOICE_Play_ding);																											//电池温度高错误发生时,不断进行声音提示
 	}else{
 		ROB_Sub_Status_Union.ROB_Sub_Status_bit.battery_temp_high_flag = 0;
 	}
@@ -954,7 +952,7 @@ void Sub_Status_Loop(void)
 		LED_DISP_ERR(led_code, 1,5);																											//尘盒满错误提示,"E15"
 		LED_DISP(led_code, LED_GARBAGE_WARNING, 1);																				//尘盒LED错误提示,LED_GARBAGE内层LED亮,红色
 		if(RTC_1s_Dush_Full_flag){
-			VOICE_PLAY(VOICE_Play_dong);
+//			VOICE_PLAY(VOICE_Play_dong);
 			RTC_1s_Dush_Full_flag = 0;
 		}else
 			;
@@ -1005,6 +1003,10 @@ void Status_Change_Loop(void)
 		case(ROB_Basic_Cleaning_flag):																								//打扫状态下,可能进行的状态切换
 			if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.battery_Low_flag){
 				ROB_Basic_Status_flag = ROB_Basic_Returning_flag;															//若电池电量低,切换到自动返回状态
+			}else
+				;
+			if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag){
+				ROB_Basic_Status_flag = ROB_Basic_Charging_flag;															//若充电开始标识置位,切换到充电状态
 			}else
 				;
 			if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.sys_err_flag){
@@ -1070,6 +1072,10 @@ void Status_Change_Loop(void)
 			if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.garbage_box_err_flag == 0){
 				ROB_Basic_Status_flag = ROB_Basic_Waiting_flag;																//若尘盒未放标识清零,切换到待机状态
 			}
+			if(ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag){
+				ROB_Basic_Status_flag = ROB_Basic_Charging_flag;															//若充电开始标识置位,切换到充电状态
+			}else
+				;
 			break;
 		default:																																			//默认系统处于待机状态
 			ROB_Basic_Status_flag = ROB_Basic_Waiting_flag;

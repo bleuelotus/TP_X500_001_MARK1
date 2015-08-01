@@ -45,8 +45,6 @@ void CHARGER_PWM_Init(u16 arr, u16 psc)
  TIM_OC1PreloadConfig(TIM1, TIM_OCPreload_Enable);  																							//使能TIM1在CCR1上的预装载寄存器
 
  TIM_Cmd(TIM1, ENABLE);																																						//使能TIM1
- 
- TIM_CtrlPWMOutputs(TIM1, ENABLE);																																//使能PWM输出
 }
 
 //充电接口初始化

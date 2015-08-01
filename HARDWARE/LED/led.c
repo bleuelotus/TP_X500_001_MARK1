@@ -195,13 +195,17 @@ void LED_Horse_Lamp_Disp(u8 *code, u8 led_i)
 //此函数内部调用了全局变量led_code和g_charge_led_horse_lamp_cnt
 void LED_Horse_Lamp(u8 led_cnt)
 {
-	if(g_charge_led_horse_lamp_cnt){
-		g_charge_led_horse_lamp_cnt--;
-		LED_Horse_Lamp_Disp(led_code, g_charge_led_horse_lamp_cnt);
-	}else{
-		g_charge_led_horse_lamp_cnt = led_cnt;
-		LED_Horse_Lamp_Disp(led_code, g_charge_led_horse_lamp_cnt);
-	}
+	if(g_RTC_1s_charging_led_flag){
+		if(g_charge_led_horse_lamp_cnt){
+			g_charge_led_horse_lamp_cnt--;
+			LED_Horse_Lamp_Disp(led_code, g_charge_led_horse_lamp_cnt);
+		}else{
+			g_charge_led_horse_lamp_cnt = led_cnt;
+			LED_Horse_Lamp_Disp(led_code, g_charge_led_horse_lamp_cnt);
+		}
+		g_RTC_1s_charging_led_flag = 0;
+	}else
+		;
 }
 
 //LED屏显示时间函数,前两位显示小时,后两位显示分钟

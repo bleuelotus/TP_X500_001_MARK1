@@ -338,11 +338,17 @@ void MOTOR_TURN_Angle(u16 m_move_angle, u16 m_move_direc, u16 m_move_speed)
 		case(3):																																			//逆时针
 			MOTOR_MOVE_ANTICLOCKWIZE();
 			break;
-		case(4):																																			//左转
+		case(4):																																			//左前行
 			MOTOR_MOVE_TURNLEFT(m_move_speed);
 			break;
-		case(5):																																			//右转
+		case(5):																																			//右前行
 			MOTOR_MOVE_TURNRIGHT(m_move_speed);
+			break;
+		case(6):																																			//左后退
+			MOTOR_MOVE_BACKLEFT(m_move_speed);
+			break;
+		case(7):																																			//右后退
+			MOTOR_MOVE_BACKRIGHT(m_move_speed);
 			break;
 		default:																																			//顺时针
 			MOTOR_MOVE_CLOCKWIZE();
