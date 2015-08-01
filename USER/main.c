@@ -699,47 +699,27 @@ void Charging_LED_Horse_Lamp(u8 led_horse_lamp_en)
 	if(led_horse_lamp_en){																												//若充电开始标识置位,则开始显示充电电量
 		if(sensor_val[SENS_Battery] < SYS_Battery_1d4){																//电池电量小于1/4满电状态时,4个数码管LED依次闪亮数字"1"
 			if(RTC_1s_charging_led_flag){
-<<<<<<< HEAD
 				LED_Horse_Lamp(4);
-=======
-				LED_Horse_Lamp(5);
->>>>>>> c2d6b238e8b78853b9ff07a0f9d9912b43428a86
 				RTC_1s_charging_led_flag = 0;
 			}
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_2d4){													//电池电量小于2/4满电状态时,第1数码管常亮"1",其余3个数码管LED依次闪亮数字"1"
 			if(RTC_1s_charging_led_flag){
-<<<<<<< HEAD
 				LED_Horse_Lamp(3);
-=======
-				LED_Horse_Lamp(4);
->>>>>>> c2d6b238e8b78853b9ff07a0f9d9912b43428a86
 				RTC_1s_charging_led_flag = 0;
 			}
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_3d4){													//电池电量小于3/4满电状态时,第1和第2数码管常亮"1",其余2个数码管LED依次闪亮数字"1"
 			if(RTC_1s_charging_led_flag){
-<<<<<<< HEAD
 				LED_Horse_Lamp(2);
-=======
-				LED_Horse_Lamp(3);
->>>>>>> c2d6b238e8b78853b9ff07a0f9d9912b43428a86
 				RTC_1s_charging_led_flag = 0;
 			}
 		}else if(sensor_val[SENS_Battery] < SYS_Battery_Full){												//电池电量小于满电状态时,第1、第2和第3数码管常亮"1",其余1个数码管LED依次闪亮数字"1"
 			if(RTC_1s_charging_led_flag){
-<<<<<<< HEAD
 				LED_Horse_Lamp(1);
-=======
-				LED_Horse_Lamp(2);
->>>>>>> c2d6b238e8b78853b9ff07a0f9d9912b43428a86
 				RTC_1s_charging_led_flag = 0;
 			}
 		}else{																																				//电池电量充满时,4个数码管常亮"1"
 			if(RTC_1s_charging_led_flag){
-<<<<<<< HEAD
 				LED_Horse_Lamp(0);
-=======
-				LED_Horse_Lamp(1);
->>>>>>> c2d6b238e8b78853b9ff07a0f9d9912b43428a86
 				RTC_1s_charging_led_flag = 0;
 			}else
 				;
