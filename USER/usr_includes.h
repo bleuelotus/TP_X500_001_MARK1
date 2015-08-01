@@ -1,3 +1,6 @@
+#ifndef __USR_INCLUDES_H
+#define __USR_INCLUDES_H
+
 #include "delay.h"
 #include "sys.h"
 
@@ -12,6 +15,8 @@
 #include "stm32f10x_rtc.h"
 #include "stm32f10x_pwr.h"
 #include "stm32f10x_bkp.h"
+
+//#define __DEBUG_CODE																													//调试代码条件编译用
 
 //机器人基本状态常量
 #define ROB_Basic_Waiting_flag  					1																		//待机状态标识
@@ -144,10 +149,10 @@
 #define SYS_Battery_3d4										2050																//电池电量达到3/4满电判断阈值, 14.4V								  Value_adc = 14.4*132.14425 = 1903
 
 //避障相关常量
-#define SENS_F_L_EN_Value									2500																//前避障左传感器使能阈值
-#define SENS_F_LM_EN_Value								3200																//前避障左中传感器使能阈值
-#define SENS_F_M_EN_Value									3400																//前避障中传感器使能阈值
-#define SENS_F_RM_EN_Value								3300																//前避障右中传感器使能阈值
+#define SENS_F_L_EN_Value									2600																//前避障左传感器使能阈值
+#define SENS_F_LM_EN_Value								3300																//前避障左中传感器使能阈值
+#define SENS_F_M_EN_Value									3200																//前避障中传感器使能阈值
+#define SENS_F_RM_EN_Value								3100																//前避障右中传感器使能阈值
 #define SENS_F_R_EN_Value									3700																//前避障右传感器使能阈值
 
 #define SENS_F_L_nEN											(sensor_val[0]>SENS_F_L_EN_Value)
@@ -163,7 +168,13 @@
 #define SENS_CRUSH_R_nEN									(sensor_val[6] 	!= SENS_CRUSH_EN)
 
 //探底相关常量,测试时SENS_B_EN为0，实际使用设为1
+#ifdef 	__DEBUG_CODE
+#define SENS_B_EN													0
+
+#else
 #define SENS_B_EN													1
+
+#endif
 
 #define SENS_B_L_nEN											(sensor_val[7] 	!= SENS_B_EN)
 #define SENS_B_LM_nEN											(sensor_val[8] 	!= SENS_B_EN)
@@ -255,3 +266,5 @@ extern const u16 m_move_length_l;
 extern const u16 m_move_encoder_num;
 extern u8 led_code[];
 extern u8	g_RTC_1s_charging_led_flag;
+
+#endif

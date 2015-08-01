@@ -13,8 +13,6 @@
 //					V1.6.1			Remove TIM5,use RTC as 1s_timer																							2015/07/31	//
 //**************************************************************************************************************//
 
-#define __DEBUG_CODE													//调试代码条件编译用
-
 #include "usr_includes.h"
 
 #include "usart.h"
@@ -32,6 +30,7 @@
 #include "rtc.h"
 
 void Charging_Loop(void);
+void Status_Change_Loop(void);
 
 
 //机器人基本状态参数
@@ -183,14 +182,6 @@ void Usr_System_Init(void)
 	MOTOR_MOVE_Init();																														//行走电机端口初始化
 	TIM_CtrlPWMOutputs(TIM8, ENABLE);																							//使能TIM8_PWM发生器,使能行走电机,使能风机,使能避障发射
 	CHARGER_Init();																																//充电控制端口初始化
-	
-#ifdef __DEBUG_CODE
-	ROB_Basic_Status_flag = ROB_Basic_Charging_flag;
-	ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_start_flag = 1;
-	while(1){
-		Charging_Loop();
-	}
-#endif
 
 //	VOICE_PLAY(VOICE_Play_remind_long);																						//初始化完成提示音
 	printf("System_Init finished!\r\n");																					//初始化成功
@@ -382,41 +373,41 @@ void Remote_loop(void)
 			case 224:																																			//str="VOL-";
 				if(m_move_speed > 0){
 					m_move_speed -= 1;
-//				sens_ir_led_brightness -= 1;
+					//sens_ir_led_brightness -= 1;
 				}else{
 					m_move_speed = 0;
-//				sens_ir_led_brightness = 0;
+					//sens_ir_led_brightness = 0;
 				}
-//				printf("m_move_speed=%d\r\n",m_move_speed);
+				//printf("m_move_speed=%d\r\n",m_move_speed);
 				TIM_SetCompare2(TIM8,m_move_speed);																						//设置左行走电机转速
 				TIM_SetCompare3(TIM8,m_move_speed);																						//设置右行走电机转速
-//				TIM_SetCompare4(TIM8,sens_ir_led_brightness);																					//设置避障发射LED发射强度
+				//TIM_SetCompare4(TIM8,sens_ir_led_brightness);																	//设置避障发射LED发射强度
 				break;
 			case 168:																																			//str="DOWN";
 				MOTOR_MOVE(M_MOVE_Backward,m_move_speed);
-//			printf("MOTOR_MOVE_Backward\r\n");
+				//printf("MOTOR_MOVE_Backward\r\n");
 				break;
 			case 144:																																			//str="VOL+";
 				if(m_move_speed < M_MOVE_speed_h){
 					m_move_speed += 1;
-//				sens_ir_led_brightness += 1;
+					//sens_ir_led_brightness += 1;
 				}else{
 					m_move_speed = M_MOVE_speed_h;
-//				sens_ir_led_brightness = SENS_LED_Value_max;
+					//sens_ir_led_brightness = SENS_LED_Value_max;
 				}
 				printf("m_move_speed=%d\r\n",m_move_speed);
 				TIM_SetCompare2(TIM8,m_move_speed);																						//设置左行走电机转速
 				TIM_SetCompare3(TIM8,m_move_speed);																						//设置右行走电机转速
-//			TIM_SetCompare4(TIM8,sens_ir_led_brightness);																						//设置避障发射LED发射强度
+				//TIM_SetCompare4(TIM8,sens_ir_led_brightness);																	//设置避障发射LED发射强度
 				break;
 			case 104:																																			//str="1";
 				LED_DISP(led_code,LED_NUM1,1);
 				MOTOR_MOVE_TURNLEFT(m_move_speed);
-//				if(m_move_usr_angle > 0)
-//					m_move_usr_angle -= 1;
-//				else
-//					m_move_usr_angle = 0;
-//				printf("usr_angle=%d\r\n",m_move_usr_angle);
+				//if(m_move_usr_angle > 0)
+					//m_move_usr_angle -= 1;
+				//else
+					//m_move_usr_angle = 0;
+				//printf("usr_angle=%d\r\n",m_move_usr_angle);
 				break;
 			case 152:																																			//str="2";
 				LED_DISP(led_code,LED_NUM1,2);
@@ -424,11 +415,11 @@ void Remote_loop(void)
 			case 176:																																			//str="3";
 				LED_DISP(led_code,LED_NUM1,3);
 				MOTOR_MOVE_TURNRIGHT(m_move_speed);
-//				if(m_move_usr_angle <180)
-//					m_move_usr_angle += 1;
-//				else
-//					m_move_usr_angle = 180;
-//				printf("usr_angle=%d\r\n",m_move_usr_angle);
+				//if(m_move_usr_angle <180)
+					//m_move_usr_angle += 1;
+				//else
+					//m_move_usr_angle = 180;
+				//printf("usr_angle=%d\r\n",m_move_usr_angle);
 				break;
 			case 48:																																			//str="4";
 				LED_DISP(led_code,LED_NUM1,4);
@@ -478,11 +469,11 @@ void Sensor_Loop(void)
 	for(i=19;i<=23;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[19..23]过载传感器数据读取
 	for(i=24;i<=26;i++)		sensor_val[i] = SENSOR_Scan(i);													//sensor[24..26]电池电量检测,充电时电源电量检测,电池温度检测
 	//printf("ROB_Sub_Status=%d\r\n",ROB_Sub_Status_Union.ROB_Sub_Status);					//打印系统状态寄存器值
-//	if(RTC_1s_printf_flag){
-//		for(i=0;i<=10;i++)		printf("[%d]=%d,",i,sensor_val[i]);											//传感器数组值打印,调试用
-//		printf("\r\n");
-//		RTC_1s_printf_flag = 0;
-//	}
+	if(RTC_1s_printf_flag){
+		for(i=0;i<=10;i++)	printf("[%d]=%d,",i,sensor_val[i]);												//传感器数组值打印,调试用
+		printf("\r\n");
+		RTC_1s_printf_flag = 0;
+	}
 
 	//将避障导航传感器读取值赋值给传感器共用体，供导航函数使用
 	if(SENS_F_L_nEN)			Sens_Avoid_Front_Value_Union.Sens_Avoid_Front_Value_bit.sens_avoid_front_l_value = 1;
@@ -684,7 +675,7 @@ void Navigation_Loop(u8 nav_avoid_en_flag, u8 nav_return_en_flag)
 		if(nav_return_en_flag)																												//若自动返回导航使能,不停止电机
 			;
 		else{																																					//若导航全部禁能,电机全部停止
-			MOTOR_MOVE(M_MOVE_Forward,m_move_speed);
+			MOTOR_MOVE_STOP();
 			MOTOR_SIDE(M_SIDE_Stop);
 			MOTOR_FAN(M_FAN_Stop, M_FAN_speed_stop);
 		}
@@ -739,13 +730,13 @@ void Charging_Loop(void)
 			}else if(sensor_val[SENS_Battery] < SYS_Battery_3d4){
 				CHARGER_Start_more_than_1d4();																								//电量大于1/4满电电量小于3/4满电电量时,使用固定占空比充电,占空比45.5%
 			}else{
-				CHARGER_Startt_more_than_3d4();																								//电量大于3/4满电电量时,使用固定占空比充电,占空比60%
+				CHARGER_Startt_more_than_3d4();																								//电量大于3/4满电电量时,使用固定占空比充电,占空比15%
 			}
 		}else{																																				//电量已充满
 			ROB_Sub_Status_Union.ROB_Sub_Status_bit.charge_finished_flag = 1;							//充电完成标识置位
 			CHARGER_Stop();																																//充电电压大于电量满阈值后,停止充电
 			if(voice_play_times_charging_finished_ch){
-//				VOICE_PLAY(VOICE_Play_charging_up_ch);																				//电量充满后语音提示一次
+				VOICE_PLAY(VOICE_Play_charging_up_ch);																				//电量充满后语音提示一次
 				voice_play_times_charging_finished_ch--;
 			}else
 				voice_play_times_charging_finished_ch = 0;
